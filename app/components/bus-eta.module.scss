@@ -1,0 +1,98 @@
+.bus-eta {
+  max-width: 720px;
+  margin: 40px auto;
+  padding: 0 20px;
+  color: var(--black);
+}
+
+.bus-eta-header {
+  h1 {
+    margin-bottom: 4px;
+  }
+}
+
+.bus-eta-source {
+  font-size: 12px;
+  opacity: 0.6;
+
+  a {
+    color: inherit;
+  }
+}
+
+.bus-eta-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 16px 0;
+
+  button {
+    padding: 8px 16px;
+    border-radius: 8px;
+    border: var(--border-in-light);
+    background-color: var(--white);
+    cursor: pointer;
+
+    &.active {
+      background-color: var(--primary);
+      color: white;
+    }
+  }
+}
+
+.bus-eta-refresh {
+  margin-left: auto;
+}
+
+.bus-eta-error {
+  padding: 10px;
+  border-radius: 8px;
+  background-color: rgba(255, 0, 0, 0.1);
+  color: #c00;
+  margin-bottom: 12px;
+}
+
+.bus-eta-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.bus-eta-stop {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: var(--border-in-light);
+}
+
+.bus-eta-stop-name {
+  font-weight: 500;
+  flex: 1;
+}
+
+.bus-eta-seq {
+  display: inline-block;
+  min-width: 24px;
+  margin-right: 8px;
+  opacity: 0.5;
+}
+
+.bus-eta-times {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bus-eta-time {
+  font-size: 14px;
+}
+
+.bus-eta-updated {
+  margin-top: 16px;
+  font-size: 12px;
+  opacity: 0.5;
+  text-align: right;
+}
