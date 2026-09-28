@@ -96,7 +96,8 @@ def get_clients():
     return genai_client, storage_client
 
 
-client, storage_client = get_clients()
+# NOTE: we connect to Google only when a video is generated (not at page load), so the
+# storyboard upload and settings always appear even if the key file / network has a problem.
 
 
 # ==========================================
@@ -237,6 +238,7 @@ def submit_segment(key, first, last):
     if num_videos == 1:
         config_kwargs["seed"] = MY_SEED
 
+    client, _ = get_clients()
     operation = client.models.generate_videos(
         model=model_name,
         prompt=full_prompt(a, b),
@@ -269,7 +271,7 @@ def collect_segment(key, operation):
         res_uri = gv.video.uri
         bucket_name = res_uri.split('/')[2]
         blob_path = '/'.join(res_uri.split('/')[3:])
-        blob = storage_client.bucket(bucket_name).blob(blob_path)
+        blob = get_clients()[1].bucket(bucket_name).blob(blob_path)
         stamp = datetime.now().strftime("%H%M%S")
         path = out_dir / f"segment_{int(a):02d}-{int(b):02d}_take{i + 1}_{stamp}.mp4"
         path.write_bytes(blob.download_as_bytes())
@@ -285,6 +287,12 @@ def run_queue(frame_by_num):
     'Resume' button picks the running jobs back up instead of starting again.
     """
     segs = st.session_state.segments
+    try:
+        with st.spinner("Connecting to Google Cloud..."):
+            get_clients()
+    except Exception as e:
+        st.error(f"Could not connect to Google Cloud — check KEY_FILE / PROJECT_ID.\n\n{e}")
+        return False
     with st.status("🎥 Generating storyboard segments...", expanded=True) as status:
         progress = st.progress(0.0)
         total = sum(1 for s in segs.values() if s["status"] in ("queued", "running"))
@@ -313,7 +321,7 @@ def run_queue(frame_by_num):
 
             for key in running:
                 try:
-                    op = client.operations.get(
+                    op = get_clients()[0].operations.get(
                         types.GenerateVideosOperation(name=segs[key]["op_name"])
                     )
                     if not op.done:
@@ -331,6 +339,7 @@ def run_queue(frame_by_num):
             progress.progress(min(finished / max(total, 1), 1.0))
 
         status.update(label="✅ All requested segments finished", state="complete")
+    return True
 
 
 # ==========================================
@@ -482,8 +491,8 @@ if pending and not st.session_state.run_requested:
 
 if st.session_state.run_requested:
     st.session_state.run_requested = False
-    run_queue(frame_by_num)
-    st.rerun()
+    if run_queue(frame_by_num):
+        st.rerun()
 
 # ==========================================
 # 8. STEP 4 — REVIEW EACH SEGMENT
