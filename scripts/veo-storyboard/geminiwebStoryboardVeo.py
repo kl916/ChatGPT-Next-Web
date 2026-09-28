@@ -16,11 +16,21 @@ from google.cloud import storage
 # ==========================================
 # 1. CONFIGURATION & AUTH
 # ==========================================
+APP_VERSION = "v5 (reference images + per-video prompts)"
+
+
+def debug(msg):
+    """Progress line in the terminal window, to see where the page stops if it ever hangs."""
+    print(f"[storyboard {APP_VERSION}] {msg}", flush=True)
+
+
+debug("page load started")
 st.set_page_config(page_title="Veo: Storyboard to Video", layout="wide")
 st.title("🎞️ Veo: Storyboard Director Mode")
 st.caption(
     "Upload a storyboard → frames are cut out automatically → each pair of neighbouring "
-    "frames (1→2, 2→3, …) becomes one video, using them as the FIRST and LAST frame."
+    "frames (1→2, 2→3, …) becomes one video, using them as the FIRST and LAST frame. "
+    f"· **Version {APP_VERSION}** · Streamlit {st.__version__}"
 )
 
 # --- CSS: keep any video within the viewport so you never have to scroll to preview it ---
@@ -385,6 +395,8 @@ if st.sidebar.button("🗑️ Reset all segments"):
     st.rerun()
 
 
+debug("sidebar drawn")
+
 # ==========================================
 # 5. STEP 1 — LOAD STORYBOARD & CUT FRAMES
 # ==========================================
@@ -433,6 +445,7 @@ else:
             st.session_state.storyboard_hash = sig
             load_frames([Image.open(f).convert("RGB") for f in files])
 
+debug("storyboard uploader drawn")
 frames = st.session_state.frames
 if not frames:
     st.info("Upload a storyboard to begin.")
@@ -552,6 +565,7 @@ if pending and not st.session_state.run_requested:
 
 if st.session_state.run_requested:
     st.session_state.run_requested = False
+    debug("generation started")
     if run_queue(frame_by_num):
         st.rerun()
 
