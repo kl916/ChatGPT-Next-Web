@@ -91,9 +91,9 @@ if "global_prompt" not in st.session_state:
 # Streamlit forgets a widget's value on any run where that widget isn't drawn (e.g. the
 # run that shows the progress panel). Re-assigning the keys each run keeps prompts,
 # frame choices and selected takes safe.
+KEEP_KEYS = ("prompt_", "use_", "fit_", "sel_", "global_prompt", "bulk_prompts", "reftype_", "ref_with_frames")
 for k in list(st.session_state.keys()):
-    if k.startswith(("prompt_", "use_", "fit_", "sel_", "global_prompt", "bulk_prompts",
-                     "reftype_", "ref_with_frames")):
+    if k.startswith(KEEP_KEYS):
         st.session_state[k] = st.session_state[k]
 
 
