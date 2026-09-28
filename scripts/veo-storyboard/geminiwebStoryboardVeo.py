@@ -53,6 +53,8 @@ OUTPUT_ROOT = Path("storyboard_output")
 # Frame size sent to Veo for each aspect ratio
 TARGET_SIZE = {"16:9": (1280, 720), "9:16": (720, 1280)}
 FIT_MODES = ["Crop centre", "Crop left", "Crop right", "Pad (blurred fill)"]
+MAX_REFS = 4
+REF_TYPES = {"Asset (character / object / place)": "ASSET", "Style": "STYLE"}
 
 # --- SESSION STATE MANAGEMENT ---
 # 'frames'   = list of {"num": 1-based storyboard frame number, "raw": PIL panel image}
@@ -80,7 +82,8 @@ if "global_prompt" not in st.session_state:
 # run that shows the progress panel). Re-assigning the keys each run keeps prompts,
 # frame choices and selected takes safe.
 for k in list(st.session_state.keys()):
-    if k.startswith(("prompt_", "use_", "fit_", "sel_", "global_prompt", "bulk_prompts")):
+    if k.startswith(("prompt_", "use_", "fit_", "sel_", "global_prompt", "bulk_prompts",
+                     "reftype_", "ref_with_frames")):
         st.session_state[k] = st.session_state[k]
 
 
@@ -221,8 +224,10 @@ def full_prompt(a, b):
 
 
 def submit_segment(key, first, last):
-    """Start one Veo job: first frame = image, last frame = config.last_frame."""
+    """Start one Veo job: first frame = image, last frame = config.last_frame,
+    plus any reference images the user uploaded."""
     a, b = first["num"], last["num"]
+    use_frames = not ref_images or st.session_state.get("ref_with_frames", True)
     config_kwargs = dict(
         number_of_videos=num_videos,
         duration_seconds=duration,
@@ -230,10 +235,19 @@ def submit_segment(key, first, last):
         generate_audio=generate_audio,
         output_gcs_uri=GCS_OUTPUT_URI,
         person_generation="allow_adult",
-        last_frame=types.Image(
-            image_bytes=to_png_bytes(processed_frame(last)), mime_type="image/png"
-        ),
     )
+    if use_frames:
+        config_kwargs["last_frame"] = types.Image(
+            image_bytes=to_png_bytes(processed_frame(last)), mime_type="image/png"
+        )
+    if ref_images:
+        config_kwargs["reference_images"] = [
+            types.VideoGenerationReferenceImage(
+                image=types.Image(image_bytes=r["bytes"], mime_type="image/png"),
+                reference_type=r["type"],
+            )
+            for r in ref_images
+        ]
     # A fixed seed makes multiple takes identical, so only lock it for single takes.
     if num_videos == 1:
         config_kwargs["seed"] = MY_SEED
@@ -244,7 +258,7 @@ def submit_segment(key, first, last):
         prompt=full_prompt(a, b),
         image=types.Image(
             image_bytes=to_png_bytes(processed_frame(first)), mime_type="image/png"
-        ),
+        ) if use_frames else None,
         config=types.GenerateVideosConfig(**config_kwargs),
     )
     seg = st.session_state.segments[key]
@@ -450,10 +464,42 @@ for first, last in pairs:
     )
 active_keys = [seg_key(a["num"], b["num"]) for a, b in pairs]
 
+# --- Optional reference images (same set is sent with every segment) ---
+st.subheader("🖼️ Reference images (optional, up to 4)")
+st.caption(
+    "Photos of your characters, costumes, props or location, so Veo keeps them consistent "
+    "in every video. Veo 3.1 usually needs 8 s duration for reference images, and some "
+    "models accept at most 3 — if Veo rejects the request, the reason is shown on the segment."
+)
+ref_files = st.file_uploader(
+    "Upload reference images", type=["jpg", "jpeg", "png", "webp"],
+    accept_multiple_files=True, key="ref_uploader",
+)
+if ref_files and len(ref_files) > MAX_REFS:
+    st.warning(f"Only the first {MAX_REFS} reference images are used.")
+ref_images = []
+if ref_files:
+    rcols = st.columns(MAX_REFS)
+    for i, f in enumerate(ref_files[:MAX_REFS]):
+        with rcols[i]:
+            img = Image.open(f).convert("RGB")
+            st.image(img, caption=f.name, use_container_width=True)
+            label = st.selectbox("Type", list(REF_TYPES), key=f"reftype_{i}")
+            ref_images.append({"bytes": to_png_bytes(img), "type": REF_TYPES[label]})
+    if "ref_with_frames" not in st.session_state:
+        st.session_state.ref_with_frames = True
+    st.checkbox(
+        "Also use the storyboard frames as first / last frame",
+        key="ref_with_frames",
+        help="Untick if Veo says reference images can't be combined with first/last frames. "
+             "Each video is then made from its prompt + reference images only.",
+    )
+
 # ==========================================
 # 6. STEP 2 — PROMPTS
 # ==========================================
 st.header("2️⃣ Prompts")
+st.caption("Type the prompt for each video below before generating. The global prompt is added in front of every one.")
 st.text_area(
     "Global prompt (added to every segment — describe characters, location, style)",
     key="global_prompt", height=90,
@@ -467,12 +513,27 @@ with st.expander("📋 Paste all segment prompts at once (one line per segment)"
             st.session_state[f"prompt_{first['num']}_{last['num']}"] = line
         st.rerun()
 
+for idx, (first, last) in enumerate(pairs):
+    a, b = first["num"], last["num"]
+    t1, t2, t3 = st.columns([1, 1, 4])
+    t1.image(processed_frame(first), caption=f"Frame {a}", use_container_width=True)
+    t2.image(processed_frame(last), caption=f"Frame {b}", use_container_width=True)
+    t3.text_area(
+        f"Video {idx + 1} prompt (frame {a} → frame {b})", key=f"prompt_{a}_{b}", height=110,
+        placeholder="What happens between these two frames? Action, camera movement, sound…",
+    )
+
 # ==========================================
 # 7. STEP 3 — GENERATE
 # ==========================================
 st.header("3️⃣ Generate")
 n_done = sum(1 for k in active_keys if st.session_state.segments[k]["status"] == "done")
-st.write(f"**{len(pairs)} segments** · {n_done} done · {duration}s each · {num_videos} take(s) per segment")
+st.write(f"**{len(pairs)} segments** · {n_done} done · {duration}s each · {num_videos} take(s) per segment"
+         + (f" · {len(ref_images)} reference image(s)" if ref_images else ""))
+empty = [i + 1 for i, (f, l) in enumerate(pairs)
+         if not st.session_state.get(f"prompt_{f['num']}_{l['num']}", "").strip()]
+if empty:
+    st.warning(f"Video(s) {', '.join(map(str, empty))} have no prompt yet — only the global prompt will be used.")
 
 b1, b2, b3 = st.columns(3)
 if b1.button("🚀 Generate ALL segments", use_container_width=True, type="primary"):
@@ -511,8 +572,8 @@ for idx, (first, last) in enumerate(pairs):
             f1, f2 = st.columns(2)
             f1.image(processed_frame(first), caption=f"First: frame {a}", use_container_width=True)
             f2.image(processed_frame(last), caption=f"Last: frame {b}", use_container_width=True)
-            st.text_area("Segment prompt", key=f"prompt_{a}_{b}", height=100,
-                         placeholder="What happens between these two frames?")
+            st.caption("Prompt: " + (st.session_state.get(f"prompt_{a}_{b}", "").strip()
+                                     or "_(empty — edit in step 2)_"))
             label = "🔁 Regenerate this segment" if seg["status"] == "done" else "🎬 Generate this segment"
             if st.button(label, key=f"gen_{key}", use_container_width=True,
                          disabled=seg["status"] in ("queued", "running")):
